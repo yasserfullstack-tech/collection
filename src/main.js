@@ -1,335 +1,501 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight, false);
+const loader = document.querySelector('#loader');
+const qualityLabel = document.querySelector('#quality');
+const isMobile = Math.min(innerWidth, innerHeight) < 720;
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: !isMobile,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isMobile ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x01060b);
+scene.background = new THREE.Color(0x00040a);
 
-const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 120);
-camera.position.set(0, 0.02, 11.5);
-camera.lookAt(0, 0, 0);
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.05, 900);
+camera.position.set(0, 0.04, 9.4);
 
-const planetGroup = new THREE.Group();
-planetGroup.position.set(2.28, -0.02, 0);
-scene.add(planetGroup);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.enablePan = false;
+controls.minDistance = 6.4;
+controls.maxDistance = 16;
+controls.rotateSpeed = 0.38;
+controls.zoomSpeed = 0.62;
+controls.target.set(0, 0, 0);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.18;
 
-const radius = 3.78;
-const sunDirection = new THREE.Vector3(-0.62, 0.48, 0.37).normalize();
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.34, 0.72, 0.88);
+composer.addPass(bloom);
 
-const commonNoise = /* glsl */`
-float hash31(vec3 p) {
-  p = fract(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return fract((p.x + p.y) * p.z);
+const SUN = new THREE.Vector3(-0.78, 0.38, 0.47).normalize();
+const R = 3.12;
+const segW = isMobile ? 96 : 160;
+const segH = isMobile ? 64 : 112;
+const planet = new THREE.Group();
+planet.rotation.z = THREE.MathUtils.degToRad(-7.5);
+scene.add(planet);
+
+function fitComposition() {
+  const w = innerWidth;
+  const h = innerHeight;
+  camera.aspect = w / h;
+  if (w > 860) camera.setViewOffset(w, h, -w * 0.19, h * 0.01, w, h);
+  else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isMobile ? 1.5 : 2));
+  composer.setSize(w, h);
+}
+fitComposition();
+addEventListener('resize', fitComposition);
+
+// --- Star field -------------------------------------------------------------
+function starTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.17, 'rgba(235,247,255,.93)');
+  g.addColorStop(0.46, 'rgba(125,185,255,.24)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
-float noise3(vec3 p) {
-  vec3 i = floor(p);
-  vec3 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
+const starMap = starTexture();
+const stars = new THREE.Group();
+scene.add(stars);
 
-  float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
-  float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
-  float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
-  float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
-  float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
-  float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
-  float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
-  float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
-
-  float nx00 = mix(n000, n100, f.x);
-  float nx10 = mix(n010, n110, f.x);
-  float nx01 = mix(n001, n101, f.x);
-  float nx11 = mix(n011, n111, f.x);
-  float nxy0 = mix(nx00, nx10, f.y);
-  float nxy1 = mix(nx01, nx11, f.y);
-  return mix(nxy0, nxy1, f.z);
-}
-
-float fbm(vec3 p) {
-  float value = 0.0;
-  float amplitude = 0.5;
-  for (int i = 0; i < 5; i++) {
-    value += amplitude * noise3(p);
-    p = p * 2.03 + vec3(13.7, 7.1, 5.9);
-    amplitude *= 0.5;
-  }
-  return value;
-}
-`;
-
-const globeGeometry = new THREE.SphereGeometry(radius, 192, 96);
-
-const surfaceMaterial = new THREE.ShaderMaterial({
-  uniforms: {
-    uSunDir: { value: sunDirection },
-    uTime: { value: 0 }
-  },
-  vertexShader: /* glsl */`
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    varying vec3 vObjectPos;
-
-    void main() {
-      vObjectPos = position;
-      vNormalW = normalize(mat3(modelMatrix) * normal);
-      vec4 worldPos = modelMatrix * vec4(position, 1.0);
-      vWorldPos = worldPos.xyz;
-      gl_Position = projectionMatrix * viewMatrix * worldPos;
-    }
-  `,
-  fragmentShader: /* glsl */`
-    precision highp float;
-    uniform vec3 uSunDir;
-    uniform float uTime;
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    varying vec3 vObjectPos;
-
-    ${commonNoise}
-
-    void main() {
-      vec3 n = normalize(vNormalW);
-      vec3 viewDir = normalize(cameraPosition - vWorldPos);
-      vec3 p = normalize(vObjectPos);
-
-      float lightFacing = dot(n, uSunDir);
-      float day = smoothstep(-0.28, 0.62, lightFacing);
-      float softDay = smoothstep(-0.52, 0.18, lightFacing);
-
-      float broad = fbm(p * 2.0 + vec3(0.0, 0.1, 0.0));
-      float fine = fbm(p * 8.0 + vec3(2.0, 8.0, 4.0));
-      float current = fbm(p * 18.0 + vec3(fine));
-
-      vec3 nightOcean = vec3(0.0018, 0.012, 0.022);
-      vec3 dayOcean = vec3(0.008, 0.095, 0.165);
-      vec3 ocean = mix(nightOcean, dayOcean, day);
-      ocean += vec3(0.0, 0.025, 0.045) * (broad - 0.45) * softDay;
-      ocean += vec3(0.0, 0.010, 0.020) * (fine - 0.5);
-      ocean += vec3(0.0, 0.012, 0.019) * current * day;
-
-      vec3 halfDir = normalize(uSunDir + viewDir);
-      float spec = pow(max(dot(n, halfDir), 0.0), 72.0) * 0.22 * day;
-      float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 4.0);
-      ocean += vec3(0.04, 0.18, 0.27) * spec;
-      ocean += vec3(0.0, 0.018, 0.038) * fresnel * day;
-
-      float lowerRightShade = smoothstep(-0.15, 0.8, p.x - p.y) * (1.0 - day);
-      ocean *= 1.0 - 0.22 * lowerRightShade;
-
-      gl_FragColor = vec4(ocean, 1.0);
-    }
-  `
-});
-
-const surface = new THREE.Mesh(globeGeometry, surfaceMaterial);
-planetGroup.add(surface);
-
-const cloudGeometry = new THREE.SphereGeometry(radius * 1.006, 192, 96);
-const cloudMaterial = new THREE.ShaderMaterial({
-  transparent: true,
-  depthWrite: false,
-  side: THREE.FrontSide,
-  uniforms: {
-    uSunDir: { value: sunDirection },
-    uTime: { value: 0 }
-  },
-  vertexShader: /* glsl */`
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    varying vec3 vObjectPos;
-
-    void main() {
-      vObjectPos = position;
-      vNormalW = normalize(mat3(modelMatrix) * normal);
-      vec4 worldPos = modelMatrix * vec4(position, 1.0);
-      vWorldPos = worldPos.xyz;
-      gl_Position = projectionMatrix * viewMatrix * worldPos;
-    }
-  `,
-  fragmentShader: /* glsl */`
-    precision highp float;
-    uniform vec3 uSunDir;
-    uniform float uTime;
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    varying vec3 vObjectPos;
-
-    ${commonNoise}
-
-    void main() {
-      vec3 n = normalize(vNormalW);
-      vec3 p = normalize(vObjectPos);
-      vec3 viewDir = normalize(cameraPosition - vWorldPos);
-
-      float warpA = fbm(p * 2.8 + vec3(3.1, 9.7, 1.8));
-      float warpB = fbm(p * 5.3 + vec3(warpA * 3.0));
-      float field = fbm(p * 8.5 + vec3(warpA * 2.0, warpB * 2.4, warpA));
-      float wisps = fbm(p * 19.0 + vec3(warpB * 2.0));
-      float cloud = smoothstep(0.57, 0.72, field + wisps * 0.17);
-
-      // Distinctive cyclone matching the reference's left/upper cloud spiral.
-      vec3 c = normalize(vec3(-0.68, 0.26, 0.685));
-      vec3 t1 = normalize(cross(vec3(0.0, 1.0, 0.0), c));
-      vec3 t2 = normalize(cross(c, t1));
-      float ca = clamp(dot(p, c), -1.0, 1.0);
-      float r = acos(ca);
-      float tx = dot(p, t1);
-      float ty = dot(p, t2);
-      float a = atan(ty, tx);
-      float spiral = 0.5 + 0.5 * cos(a * 2.2 + r * 28.0 + fbm(p * 12.0) * 2.6);
-      float spiralBand = smoothstep(0.57, 0.91, spiral);
-      float stormEnvelope = smoothstep(0.56, 0.18, r) * smoothstep(0.03, 0.12, r);
-      float eye = smoothstep(0.025, 0.095, r);
-      cloud = max(cloud, spiralBand * stormEnvelope * eye * 0.96);
-
-      // Break up the cloud mask into thin, torn edges.
-      cloud *= smoothstep(0.27, 0.72, wisps + warpB * 0.34);
-      cloud = clamp(cloud, 0.0, 1.0);
-
-      float lightFacing = dot(n, uSunDir);
-      float day = smoothstep(-0.38, 0.64, lightFacing);
-      float twilight = smoothstep(-0.62, 0.12, lightFacing);
-      float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.6);
-
-      vec3 darkCloud = vec3(0.025, 0.070, 0.105);
-      vec3 lightCloud = vec3(0.56, 0.75, 0.86);
-      vec3 cloudColor = mix(darkCloud, lightCloud, day);
-      cloudColor += vec3(0.07, 0.18, 0.25) * rim * day;
-
-      float alpha = cloud * (0.20 + 0.73 * twilight);
-      alpha *= 1.0 - 0.24 * smoothstep(0.78, 1.0, dot(n, viewDir));
-
-      if (alpha < 0.012) discard;
-      gl_FragColor = vec4(cloudColor, alpha);
-    }
-  `
-});
-
-const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
-clouds.rotation.y = -0.20;
-clouds.rotation.z = -0.045;
-planetGroup.add(clouds);
-
-const atmosphereGeometry = new THREE.SphereGeometry(radius * 1.035, 160, 80);
-const atmosphereMaterial = new THREE.ShaderMaterial({
-  transparent: true,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
-  side: THREE.BackSide,
-  uniforms: {
-    uSunDir: { value: sunDirection }
-  },
-  vertexShader: /* glsl */`
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    void main() {
-      vNormalW = normalize(mat3(modelMatrix) * normal);
-      vec4 worldPos = modelMatrix * vec4(position, 1.0);
-      vWorldPos = worldPos.xyz;
-      gl_Position = projectionMatrix * viewMatrix * worldPos;
-    }
-  `,
-  fragmentShader: /* glsl */`
-    precision highp float;
-    uniform vec3 uSunDir;
-    varying vec3 vNormalW;
-    varying vec3 vWorldPos;
-    void main() {
-      vec3 n = normalize(vNormalW);
-      vec3 viewDir = normalize(cameraPosition - vWorldPos);
-      float fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.9);
-      float sun = smoothstep(-0.34, 0.72, dot(n, uSunDir));
-      float alpha = fresnel * (0.12 + 0.78 * sun);
-      vec3 color = mix(vec3(0.01, 0.19, 0.38), vec3(0.08, 0.58, 1.0), sun);
-      gl_FragColor = vec4(color, alpha * 0.72);
-    }
-  `
-});
-const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-planetGroup.add(atmosphere);
-
-function mulberry32(seed) {
-  return function random() {
-    let t = seed += 0x6D2B79F5;
+function addStars(count, size, opacity, seed) {
+  let s = seed >>> 0;
+  const rand = () => {
+    s += 0x6D2B79F5;
+    let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function createStars(count, size, opacity, seed) {
-  const random = mulberry32(seed);
-  const positions = new Float32Array(count * 3);
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const c = new THREE.Color();
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = (random() - 0.5) * 27.0;
-    positions[i * 3 + 1] = (random() - 0.5) * 17.0;
-    positions[i * 3 + 2] = -8.0 - random() * 24.0;
+    const u = rand() * 2 - 1;
+    const a = rand() * Math.PI * 2;
+    const rr = 90 + rand() * 300;
+    const k = Math.sqrt(1 - u * u);
+    pos[i * 3] = Math.cos(a) * k * rr;
+    pos[i * 3 + 1] = u * rr;
+    pos[i * 3 + 2] = Math.sin(a) * k * rr;
+    const roll = rand();
+    if (roll < 0.11) c.setRGB(1.0, 0.79, 0.60);
+    else if (roll < 0.32) c.setRGB(0.63, 0.80, 1.0);
+    else c.setRGB(0.88, 0.94, 1.0);
+    const b = 0.32 + rand() * 0.68;
+    col[i * 3] = c.r * b;
+    col[i * 3 + 1] = c.g * b;
+    col[i * 3 + 2] = c.b * b;
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({
-    color: 0x8fcbff,
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({
     size,
+    map: starMap,
+    vertexColors: true,
     transparent: true,
     opacity,
-    sizeAttenuation: true,
     depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: false,
     toneMapped: false
   });
-  return new THREE.Points(geometry, material);
+  stars.add(new THREE.Points(geo, mat));
+}
+addStars(isMobile ? 600 : 950, 1.45, 0.52, 0x19a02d);
+addStars(isMobile ? 120 : 220, 2.35, 0.66, 0x7f0231);
+addStars(isMobile ? 24 : 46, 3.6, 0.82, 0x42aa17);
+
+// Very faint distant blue haze — just enough to avoid a flat digital black.
+function hazeSprite(x, y, z, scale, opacity) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(12,48,100,.48)');
+  g.addColorStop(0.45, 'rgba(6,24,58,.16)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.set(x, y, z);
+  sprite.scale.set(scale, scale, 1);
+  scene.add(sprite);
+}
+hazeSprite(-12, 4, -45, 35, 0.16);
+
+// --- Robust texture loading -------------------------------------------------
+const BASE = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r180/examples/textures/planets/';
+const textureLoader = new THREE.TextureLoader();
+textureLoader.setCrossOrigin('anonymous');
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+function fallbackTexture(kind) {
+  const w = kind === 'normal' ? 4 : 768;
+  const h = kind === 'normal' ? 4 : 384;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  if (kind === 'normal') {
+    x.fillStyle = 'rgb(128,128,255)';
+    x.fillRect(0, 0, w, h);
+  } else if (kind === 'day') {
+    const g = x.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#164b73'); g.addColorStop(0.5, '#072a4b'); g.addColorStop(1, '#03152a');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+  } else if (kind === 'spec') {
+    x.fillStyle = '#dedede'; x.fillRect(0, 0, w, h);
+  } else if (kind === 'night') {
+    x.fillStyle = '#000'; x.fillRect(0, 0, w, h);
+  } else {
+    x.clearRect(0, 0, w, h);
+    for (let i = 0; i < 680; i++) {
+      const yy = Math.random() * h;
+      const xx = Math.random() * w;
+      const rw = 18 + Math.random() * 100;
+      const rh = 3 + Math.random() * 18;
+      const a = 0.02 + Math.random() * 0.08;
+      x.fillStyle = `rgba(255,255,255,${a})`;
+      x.beginPath(); x.ellipse(xx, yy, rw, rh, Math.random() * Math.PI, 0, Math.PI * 2); x.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  t.anisotropy = maxAniso;
+  if (kind === 'day' || kind === 'night' || kind === 'cloud') t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
-scene.add(createStars(420, 0.020, 0.56, 0x2f6e2b1));
-scene.add(createStars(95, 0.034, 0.80, 0x7a391c9));
-scene.add(createStars(22, 0.054, 0.95, 0xc2f9421));
+function loadTexture(file, kind) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) { done = true; resolve(fallbackTexture(kind)); }
+    }, 9000);
+    textureLoader.load(BASE + file, (t) => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      t.wrapS = THREE.RepeatWrapping;
+      t.wrapT = THREE.ClampToEdgeWrapping;
+      t.anisotropy = maxAniso;
+      if (kind === 'day' || kind === 'night' || kind === 'cloud') t.colorSpace = THREE.SRGBColorSpace;
+      resolve(t);
+    }, undefined, () => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      resolve(fallbackTexture(kind));
+    });
+  });
+}
 
-const pointer = new THREE.Vector2();
-window.addEventListener('pointermove', (event) => {
-  pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+const surfaceVertex = /* glsl */`
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  varying vec3 vPosW;
+  void main() {
+    vUv = uv;
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vPosW = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const surfaceFragment = /* glsl */`
+  uniform sampler2D dayMap;
+  uniform sampler2D nightMap;
+  uniform sampler2D specMap;
+  uniform sampler2D normalMap;
+  uniform vec3 sunDir;
+  uniform float nightIntensity;
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  varying vec3 vPosW;
+
+  void main() {
+    vec3 V = normalize(cameraPosition - vPosW);
+    vec3 L = normalize(sunDir);
+    vec3 Ng = normalize(vNormalW);
+
+    vec3 dp1 = dFdx(vPosW);
+    vec3 dp2 = dFdy(vPosW);
+    vec2 duv1 = dFdx(vUv);
+    vec2 duv2 = dFdy(vUv);
+    vec3 T = normalize(dp1 * duv2.y - dp2 * duv1.y);
+    vec3 B = normalize(cross(Ng, T));
+    vec3 nt = texture2D(normalMap, vUv).xyz * 2.0 - 1.0;
+    nt.xy *= 0.72;
+    vec3 N = normalize(mat3(T, B, Ng) * nt);
+    if (dot(N, V) < 0.0) N = Ng;
+
+    float ndl = dot(N, L);
+    float ndlG = dot(Ng, L);
+    float lit = pow(clamp((ndl + 0.08) / 1.08, 0.0, 1.0), 1.18);
+    float twilight = smoothstep(-0.35, 0.17, ndlG);
+
+    vec3 day = texture2D(dayMap, vUv).rgb;
+    vec3 night = texture2D(nightMap, vUv).rgb;
+    float ocean = texture2D(specMap, vUv).r;
+
+    // Pull the reference toward deep cinematic ocean blues without destroying geography.
+    vec3 oceanTint = vec3(0.025, 0.17, 0.31);
+    day = mix(day, day * oceanTint * 2.6, ocean * 0.53);
+    day *= vec3(0.78, 0.91, 1.08);
+
+    vec3 col = day * (0.014 + 1.18 * lit);
+    col += vec3(0.004, 0.018, 0.045) * (1.0 - twilight);
+
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(N, H), 0.0), 115.0) * ocean * smoothstep(0.0, 0.3, ndlG);
+    col += vec3(0.54, 0.80, 1.0) * spec * 1.55;
+
+    float nightMask = smoothstep(0.02, -0.30, ndlG);
+    col += night * nightMask * nightIntensity * vec3(0.85, 0.67, 0.42) * 0.42;
+
+    float fres = pow(1.0 - clamp(dot(Ng, V), 0.0, 1.0), 3.3);
+    float sunSide = clamp(ndlG * 0.55 + 0.5, 0.0, 1.0);
+    col += vec3(0.04, 0.31, 0.66) * fres * (0.11 + 0.58 * sunSide);
+
+    // Gentle filmic shoulder before ACES tone mapping.
+    col = max(col, vec3(0.0));
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const cloudVertex = surfaceVertex;
+const cloudFragment = /* glsl */`
+  uniform sampler2D cloudMap;
+  uniform vec3 sunDir;
+  uniform float opacityScale;
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  varying vec3 vPosW;
+
+  void main() {
+    vec4 tex = texture2D(cloudMap, vUv);
+    float cloud = max(tex.a, max(tex.r, max(tex.g, tex.b)));
+    cloud = smoothstep(0.16, 0.88, cloud);
+    if (cloud < 0.01) discard;
+
+    vec3 N = normalize(vNormalW);
+    vec3 L = normalize(sunDir);
+    vec3 V = normalize(cameraPosition - vPosW);
+    float ndl = dot(N, L);
+    float lit = pow(clamp((ndl + 0.17) / 1.17, 0.0, 1.0), 0.72);
+    float night = smoothstep(0.08, -0.36, ndl);
+    float term = exp(-abs(ndl) * 6.2);
+    float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.3);
+
+    vec3 shade = mix(vec3(0.012,0.025,0.050), vec3(0.78,0.89,0.98), lit);
+    shade += vec3(0.10,0.28,0.48) * fres * lit * 0.34;
+    shade += vec3(0.10,0.12,0.15) * term * 0.22;
+    shade *= 1.0 - night * 0.52;
+
+    float alpha = cloud * opacityScale * (0.12 + 0.92 * lit);
+    alpha *= 1.0 - fres * 0.36;
+    gl_FragColor = vec4(shade, alpha);
+  }
+`;
+
+const atmosphereVertex = /* glsl */`
+  varying vec3 vNormalW;
+  varying vec3 vPosW;
+  void main() {
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vPosW = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const atmosphereFragment = /* glsl */`
+  uniform vec3 sunDir;
+  uniform vec3 glowColor;
+  uniform float intensity;
+  uniform float power;
+  uniform float minGlow;
+  varying vec3 vNormalW;
+  varying vec3 vPosW;
+  void main() {
+    vec3 N = normalize(vNormalW);
+    vec3 V = normalize(cameraPosition - vPosW);
+    vec3 L = normalize(sunDir);
+    float rim = pow(1.0 - clamp(abs(dot(N, V)), 0.0, 1.0), power);
+    float sun = smoothstep(-0.28, 0.62, dot(N, L));
+    float a = rim * (minGlow + 0.92 * sun) * intensity;
+    gl_FragColor = vec4(glowColor * a, a);
+  }
+`;
+
+function makeAtmosphere(radius, power, intensity, color, minGlow, side) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      sunDir: { value: SUN },
+      glowColor: { value: new THREE.Color(color) },
+      intensity: { value: intensity },
+      power: { value: power },
+      minGlow: { value: minGlow }
+    },
+    vertexShader: atmosphereVertex,
+    fragmentShader: atmosphereFragment,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, isMobile ? 64 : 112, isMobile ? 48 : 80), mat);
+  mesh.renderOrder = 5;
+  planet.add(mesh);
+  return mesh;
+}
+
+let surface;
+let cloudsA;
+let cloudsB;
+let atmosphere = [];
+let surfaceUniforms;
+let cloudUniformsA;
+let cloudUniformsB;
+let ready = false;
+
+Promise.all([
+  loadTexture('earth_atmos_2048.jpg', 'day'),
+  loadTexture('earth_lights_2048.png', 'night'),
+  loadTexture('earth_specular_2048.jpg', 'spec'),
+  loadTexture('earth_normal_2048.jpg', 'normal'),
+  loadTexture('earth_clouds_1024.png', 'cloud')
+]).then(([day, night, spec, normal, cloud]) => {
+  surfaceUniforms = {
+    dayMap: { value: day },
+    nightMap: { value: night },
+    specMap: { value: spec },
+    normalMap: { value: normal },
+    sunDir: { value: SUN },
+    nightIntensity: { value: 0.23 }
+  };
+
+  const surfaceMat = new THREE.ShaderMaterial({
+    uniforms: surfaceUniforms,
+    vertexShader: surfaceVertex,
+    fragmentShader: surfaceFragment,
+    extensions: { derivatives: true }
+  });
+  surface = new THREE.Mesh(new THREE.SphereGeometry(R, segW, segH), surfaceMat);
+  surface.rotation.y = THREE.MathUtils.degToRad(138);
+  planet.add(surface);
+
+  cloudUniformsA = { cloudMap: { value: cloud }, sunDir: { value: SUN }, opacityScale: { value: 0.92 } };
+  const cloudMatA = new THREE.ShaderMaterial({
+    uniforms: cloudUniformsA,
+    vertexShader: cloudVertex,
+    fragmentShader: cloudFragment,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide
+  });
+  cloudsA = new THREE.Mesh(new THREE.SphereGeometry(R * 1.008, segW, segH), cloudMatA);
+  cloudsA.rotation.y = THREE.MathUtils.degToRad(130);
+  planet.add(cloudsA);
+
+  // A second, faint cloud shell breaks the flat "texture pasted on a ball" look.
+  cloudUniformsB = { cloudMap: { value: cloud }, sunDir: { value: SUN }, opacityScale: { value: 0.20 } };
+  const cloudMatB = cloudMatA.clone();
+  cloudMatB.uniforms = cloudUniformsB;
+  cloudsB = new THREE.Mesh(new THREE.SphereGeometry(R * 1.014, isMobile ? 72 : 112, isMobile ? 48 : 72), cloudMatB);
+  cloudsB.rotation.y = THREE.MathUtils.degToRad(118);
+  cloudsB.rotation.z = 0.018;
+  planet.add(cloudsB);
+
+  atmosphere = [
+    makeAtmosphere(R * 1.014, 3.8, 0.90, 0x2b8dff, 0.035, THREE.FrontSide),
+    makeAtmosphere(R * 1.055, 2.35, 0.31, 0x1477f2, 0.045, THREE.BackSide),
+    makeAtmosphere(R * 1.095, 1.8, 0.12, 0x0f58bd, 0.018, THREE.BackSide)
+  ];
+
+  renderer.compile(scene, camera);
+  composer.render();
+  ready = true;
+  qualityLabel.textContent = day.image?.width >= 1800 ? '2K SURFACE · 1K CLOUDS' : 'PROCEDURAL FALLBACK';
+  setTimeout(() => loader.classList.add('hide'), 250);
+}).catch((error) => {
+  console.error(error);
+  qualityLabel.textContent = 'FALLBACK MODE';
+  loader.querySelector('span').textContent = 'Render fallback unavailable';
 });
 
-function resize() {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height, false);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-}
-window.addEventListener('resize', resize);
+// --- Interaction + presentation --------------------------------------------
+const buttons = [...document.querySelectorAll('[data-toggle]')];
+const state = { clouds: true, atmosphere: true, lights: true, orbit: true };
+buttons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const key = button.dataset.toggle;
+    state[key] = !state[key];
+    button.classList.toggle('on', state[key]);
+    if (key === 'clouds' && cloudsA) cloudsA.visible = cloudsB.visible = state.clouds;
+    if (key === 'atmosphere') atmosphere.forEach((m) => { m.visible = state.atmosphere; });
+    if (key === 'lights' && surfaceUniforms) surfaceUniforms.nightIntensity.value = state.lights ? 0.23 : 0;
+    if (key === 'orbit') controls.autoRotate = state.orbit;
+  });
+});
+
+let idleSince = performance.now();
+controls.addEventListener('start', () => { idleSince = performance.now(); controls.autoRotate = false; });
+controls.addEventListener('end', () => { idleSince = performance.now(); });
+renderer.domElement.addEventListener('pointermove', () => { idleSince = performance.now(); });
+renderer.domElement.addEventListener('dblclick', () => {
+  camera.position.set(0, 0.04, 9.4);
+  controls.target.set(0, 0, 0);
+  controls.update();
+});
 
 const clock = new THREE.Clock();
-let lastTime = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
 
-function render() {
-  const elapsed = clock.getElapsedTime();
-  const delta = elapsed - lastTime;
-  lastTime = elapsed;
+  if (ready) {
+    surface.rotation.y += dt * 0.0042;
+    cloudsA.rotation.y += dt * 0.0066;
+    cloudsB.rotation.y += dt * 0.0092;
+  }
+  stars.rotation.y += dt * 0.0007;
+  stars.rotation.x += dt * 0.00011;
 
-  surfaceMaterial.uniforms.uTime.value = elapsed;
-  cloudMaterial.uniforms.uTime.value = elapsed;
-
-  // Near-static motion keeps the hero composition intact while proving the object is truly 3D.
-  planetGroup.rotation.y += delta * 0.0025;
-  clouds.rotation.y += delta * 0.0045;
-
-  const targetX = pointer.x * 0.055;
-  const targetY = pointer.y * 0.035;
-  camera.position.x += (targetX - camera.position.x) * 0.018;
-  camera.position.y += (0.02 + targetY - camera.position.y) * 0.018;
-  camera.lookAt(0, 0, 0);
-
-  renderer.render(scene, camera);
-  requestAnimationFrame(render);
+  if (state.orbit && performance.now() - idleSince > 2600) controls.autoRotate = true;
+  controls.update();
+  composer.render();
 }
-
-render();
+animate();
