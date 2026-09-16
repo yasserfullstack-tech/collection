@@ -20,7 +20,7 @@ npm run preview
 
 ## Controls
 
-Move the pointer for a very small parallax shift. Press **R** to toggle a 50% reference overlay for visual comparison. The overlay is hidden by default and is only a review aid.
+Move the pointer for a very small parallax shift while keeping the hero composition locked.
 
 ## Reconstruction decisions
 
@@ -30,4 +30,4 @@ The cloud layer is a second sphere slightly above the ocean surface. It combines
 
 ## Reference and limits
 
-`public/reference.png` is the original supplied reference. It is retained for side-by-side review only. Because only one view exists, the hidden hemisphere cannot be inferred exactly. The cloud geography and fine surface detail are therefore intentionally approximate while preserving the composition, palette, lighting direction, and identity-defining cloud/atmosphere cues.
+The supplied image is used as a visual reference only and is not copied into the runtime. Because only one view exists, the hidden hemisphere cannot be inferred exactly. The cloud geography and fine surface detail are therefore intentionally approximate while preserving the composition, palette, lighting direction, and identity-defining cloud/atmosphere cues.
