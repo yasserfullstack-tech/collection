@@ -1,0 +1,61 @@
+{
+  "schemaNote": "Hand-authored reconstruction contract following img2threejs v2 concepts; this file was not emitted by forge scripts.",
+  "name": "Blue Earth from orbit",
+  "reference": "supplied source image (chat attachment; not copied into runtime)",
+  "intendedUse": "real-time browser hero render",
+  "objectClass": {
+    "primaryDomain": "object",
+    "complexity": "complex"
+  },
+  "qualityContract": {
+    "criticalFeatures": [
+      "large spherical planet occupying the right ~65% of frame",
+      "bright cyan atmospheric rim strongest on the upper-left limb",
+      "deep navy ocean with a broad day-to-night terminator toward lower-right",
+      "layered white-blue cloud systems with a visible spiral storm on the left/upper hemisphere",
+      "sparse cold-blue star field on near-black space"
+    ],
+    "camera": {
+      "projection": "perspective",
+      "fovDegrees": 38,
+      "planetScreenCenterApprox": [0.697, 0.498],
+      "planetScreenRadiusApprox": 0.475
+    },
+    "lighting": {
+      "keyDirection": [-0.62, 0.48, 0.37],
+      "palette": "cold blue / cyan",
+      "shadowIntent": "lower-right hemisphere falls into deep blue-black"
+    }
+  },
+  "components": [
+    {
+      "id": "planet-surface",
+      "topologyClass": "closed-organic-surface",
+      "primitive": "uv-sphere",
+      "material": "procedural ocean shader"
+    },
+    {
+      "id": "cloud-shell",
+      "topologyClass": "thin-offset-shell",
+      "primitive": "uv-sphere",
+      "material": "transparent multi-octave procedural cloud shader"
+    },
+    {
+      "id": "atmosphere",
+      "topologyClass": "thin-offset-shell",
+      "primitive": "uv-sphere",
+      "material": "additive Fresnel atmosphere shader"
+    },
+    {
+      "id": "stars",
+      "topologyClass": "particle-field",
+      "primitive": "points",
+      "material": "three deterministic point layers"
+    }
+  ],
+  "knownUncertainty": [
+    "Single image does not reveal the far side of the planet.",
+    "Cloud geography is procedurally reconstructed rather than copied pixel-for-pixel.",
+    "The visible storm and cloud bands are likeness cues, not meteorological simulation."
+  ]
+}
