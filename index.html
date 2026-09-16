@@ -3,12 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#01060b" />
-    <title>Procedural Earth — img2threejs study</title>
+    <meta name="theme-color" content="#00040a" />
+    <meta name="description" content="Cinematic real-time Earth reconstruction in Three.js" />
+    <title>Earth — Deep Orbit</title>
   </head>
   <body>
-    <div id="app" aria-label="Procedural 3D Earth reconstruction">
+    <div id="app" aria-label="Cinematic real-time 3D Earth">
       <canvas id="scene"></canvas>
+      <div class="vignette"></div>
+      <div class="grain"></div>
+
+      <div class="hud">
+        <div class="brand">
+          <div class="orb" aria-hidden="true"></div>
+          <div><strong>EARTH</strong><small>DEEP ORBIT // REAL-TIME WEBGL</small></div>
+        </div>
+
+        <div class="controls" aria-label="Render controls">
+          <button class="on" data-toggle="clouds">Clouds</button>
+          <button class="on" data-toggle="atmosphere">Atmosphere</button>
+          <button class="on" data-toggle="lights">Night lights</button>
+          <button class="on" data-toggle="orbit">Drift</button>
+        </div>
+
+        <div class="meta">DRAG <b>ORBIT</b> · SCROLL <b>ZOOM</b><br><span id="quality">LOADING PLANETARY DATA</span></div>
+      </div>
+
+      <div id="loader" role="status" aria-live="polite">
+        <div class="loader-inner"><div class="loader-ring"></div><span>INITIALIZING EARTH</span></div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
